@@ -1,5 +1,6 @@
 module LazyMode
   class Date
+    attr_reader :year, :month, :day
     D = 1
     M = 30
     W = 7
@@ -8,18 +9,7 @@ module LazyMode
       @year = split_date[0].to_i
       @month = split_date[1].to_i
       @day = split_date[2].to_i
-    end
-
-    def year
-      @year
-    end
-
-    def month
-      @month
-    end
-
-    def day
-      @day
+      @formatted_date = date
     end
 
     def add_days(days)
@@ -27,23 +17,13 @@ module LazyMode
       days_after_years = days % 365
       new_months = days_after_years / 30 + @month
       new_days = days_after_years % 30 + @day
-      new_date = HelperDate.format_date new_years, new_months, new_days
+      new_date = DateFormatting.format_date new_years, new_months, new_days
       Date.new "%d-%d-%d" % [new_date[0], new_date[1], new_date[2]]
     end
 
     def self.to_days(elements, type)
       elements = elements.to_i
       elements * self.const_get(type.upcase)
-      # elements * (type == 'd' ? elements : (type == 'w') ? elements * 7 :
-      # elements * 30)
-      # case type
-      #   when 'd'
-      #     elements
-      #   when 'w'
-      #       elements * 7
-      #   when 'm'
-      #     elements * 30
-      # end
     end
 
     def -(other)
@@ -53,13 +33,13 @@ module LazyMode
     end
 
     def to_s
-      "%04d-%02d-%02d" % [@year, @month, @day]
+      @formatted_date
     end
   end
 
+
   class File
-    attr_reader :notes, :name
-    attr_writer :notes
+    attr_accessor :notes, :name
 
     def initialize(name)
       @name = name
@@ -100,41 +80,48 @@ module LazyMode
 
     def try_add_note(note, date, period, agenda)
       difference = (date - note.scheduled)
-      HelperFile.add_note_diff_first note, difference, period, agenda
-      HelperFile.add_note_diff_second note, difference, period, agenda
-      HelperFile.add_note_diff_third note, difference, period, agenda
+      ScheduleAssigner.add_note_in_agenda note, difference, period, agenda
     end
-
   end
 
-  class HelperFile
-    def self.add_note_diff_first (note, difference, period, agenda)
+  class ScheduleAssigner
+    def self.add_note_in_agenda(note, difference, period, agenda)
+      self.direct_hit(note, difference, period, agenda)
+      self.direct_repetition_hit(note, difference, period, agenda)
+      self.in_between_repetitions(note, difference, period, agenda)
+    end
+
+    private
+    def self.direct_hit (note, difference, period, agenda)
       if difference <= 0 && difference + period >= 0
-        note.date(note.scheduled.to_s)
-        agenda << note
+        added_note = note.dup
+        note.date(added_note.scheduled.to_s)
+        agenda << added_note
       end
     end
 
-    def self.add_note_diff_second (note, difference, period, agenda)
+    def self.direct_repetition_hit (note, difference, period, agenda)
       if difference > 0 && ! note.repetition.nil? \
          && (difference % note.repetition == 0)
-        note.date(note.scheduled.add_days(difference).to_s)
-        agenda << note
+        added_note = note.dup
+        added_note.date(added_note.scheduled.add_days(difference).to_s)
+        agenda << added_note
       end
     end
 
-    def self.add_note_diff_third (note, difference, period, agenda)
+    def self.in_between_repetitions (note, difference, period, agenda)
       if difference > 0 && ! note.repetition.nil? \
         && (difference % note.repetition) + period >= note.repetition
         total = difference + (note.repetition - difference % note.repetition)
-        note.date(note.scheduled.add_days(total).to_s)
-        agenda << note
+        added_note = note.dup
+        added_note.date(added_note.scheduled.add_days(total).to_s)
+        agenda << added_note
       end
     end
   end
 
 
-  class HelperDate
+  class DateFormatting
     def self.format_date (years, months, days)
       if days > 30
         days -= 30
@@ -151,6 +138,7 @@ module LazyMode
       [years, months]
     end
   end
+
 
   class Agenda
     attr_reader :notes
@@ -175,14 +163,11 @@ module LazyMode
     end
   end
 
-
-
   def self.create_file(name, &block)
     file = File.new name
     file.instance_eval &block if block_given?
     file
   end
-
 
 
   class Note
@@ -238,6 +223,5 @@ module LazyMode
       instance_variable_set attribute_name, value unless value.nil?
       instance_variable_get attribute_name
     end
-
   end
 end

@@ -1,9 +1,11 @@
 module SpreadSheetHelper
-  FORMULAS = ['ADD', 'MULTIPLY', 'SUBTRACT', 'DIVIDE', 'MOD']
+  class Error < RuntimeError
+  end
+
+  FORMULAS = ['ADD', 'MULTIPLY', 'SUBTRACT', 'DIVIDE', 'MOD'].freeze
   INFORMATION = {'ADD': [2, 'ge', :+], 'MULTIPLY': [2, 'ge', :*],
                  'SUBTRACT': [2, 'eq', :-], 'DIVIDE': [2, 'eq', :/],
                  'MOD': [2, 'eq', :%]}
-  ERRORS = {'eq': ""}
 
   def is_cell_reference? (index)
     true if parse_index index rescue false
@@ -14,13 +16,16 @@ module SpreadSheetHelper
   end
 
   def parse_sheet(sheet)
-    rows = sheet.split("\n").select { |item| ! (item =~ /^\s*$/) }.map(&:strip)
-    rows.map { |row| row.split(/\t|(?:\ {2,})/) }
+     sheet
+         .split("\n")
+         .select { |item| ! (item =~ /^\s*$/) }
+         .map(&:strip)
+         .map { |row| row.split(/\t|(?:\ {2,})/) }
   end
 
   def parse_formula(item)
-    formula = /^\ *([A-Z]+)\((.+)\)$/.match(item)
-    raise self.class::Error, "Invalid expression '#{item}'" if formula.nil?
+    formula = /^\ *([A-Z]+)\((.*)\)$/.match(item)
+    raise Error, "Invalid expression '#{item}'" if formula.nil?
     formula_name, parameters = formula.captures
     parameters = evaluate_formula_parameters parameters.split(',').map(&:strip)
     validate_formula INFORMATION[formula_name.to_sym], formula_name, parameters
@@ -29,19 +34,20 @@ module SpreadSheetHelper
 
   def validate_formula(info, formula_name, parameters)
     if ! FORMULAS.include? formula_name
-      raise self.class::Error, "Unknown function '#{formula_name}'"
+      raise Error, "Unknown function '#{formula_name}'"
     else
-      validate_formula_helper info, formula_name, parameters
+      validate_formula_internal info, formula_name, parameters
     end
   end
 
-  def validate_formula_helper(info, formula_name, parameters)
+  private
+  def validate_formula_internal(info, formula_name, parameters)
     if parameters.length != info[0] &&  info[1] == 'eq'
-      raise self.class::Error, "Wrong number of arguments for '#{formula_name}'\
-: expected #{info[0]}, got #{parameters.length}"
+      raise Error, "Wrong number of arguments for '#{formula_name}'"\
+                   ": expected #{info[0]}, got #{parameters.length}"
     elsif parameters.length < info[0] &&  info[1] == 'ge'
-      raise self.class::Error, "Wrong number of arguments for '#{formula_name}'\
-: expected at least #{info[0]}, got #{parameters.length}"
+      raise Error, "Wrong number of arguments for '#{formula_name}'"\
+                   ": expected at least #{info[0]}, got #{parameters.length}"
     end
   end
 
@@ -60,13 +66,12 @@ module SpreadSheetHelper
 
   def parse_index(index)
     parsed_index = /^([A-Z]+)([0-9]+)$/.match(index)
-    raise self.class::Error, "Invalid cell index '#{index}'"if parsed_index.nil?
+    raise Error, "Invalid cell index '#{index}'"if parsed_index.nil?
     col = parsed_index[1].split("").reverse.map.with_index do |char, power|
       (char.ord - 64) * (26 ** power)
     end.reduce(&:+)
     [Integer(parsed_index[2]) - 1, col - 1]
   end
-
 end
 
 
@@ -117,9 +122,4 @@ class Spreadsheet
       is_cell_reference?(item) ? (self. [] (item)).to_f : item.to_f
     end
   end
-
-
-  class Error < StandardError
-  end
-
 end

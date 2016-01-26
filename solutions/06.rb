@@ -1,5 +1,5 @@
 module TurtleGraphics
-  class Turtle
+  module TurtleMovement
     DIRECTIONS = {
         'left': [0, -1],
         'right': [0, 1],
@@ -7,6 +7,49 @@ module TurtleGraphics
         'down': [1, 0]
     }
     DIRECTIONS_SEQUENCE = { 'left': 0, 'up': 1, 'right': 2, 'down': 3 }
+
+    def move
+      direction = DIRECTIONS[@direction]
+      row = translate_turtle(@location[0] + direction[0], @rows)
+      col = translate_turtle(@location[1] + direction[1], @cols)
+      @location[0] = row
+      @location[1] = col
+      @travel_matrix[row][col] += 1
+    end
+
+    def turn_left
+      turn(:left)
+    end
+
+    def turn_right
+      turn(:right)
+    end
+
+    private
+    def translate_turtle(current, total)
+      if current >= total
+        current = 0
+      elsif current < 0
+        current = total - 1
+      end
+      current
+    end
+
+    def turn(direction)
+      step = (direction == :right) ? 1 : -1
+      next_orientation = DIRECTIONS_SEQUENCE[@direction.to_sym] + step
+      if next_orientation < 0
+        next_orientation = DIRECTIONS_SEQUENCE.length - 1
+      elsif next_orientation >= DIRECTIONS_SEQUENCE.length
+        next_orientation = 0
+      end
+      @direction = DIRECTIONS_SEQUENCE.key(next_orientation)
+    end
+  end
+
+  class Turtle
+    include TurtleMovement
+
     def initialize(rows, cols)
       @rows = rows
       @cols = cols
@@ -38,49 +81,8 @@ module TurtleGraphics
       @travel_matrix[row][col] = 1
     end
 
-    def move
-      direction = DIRECTIONS[@direction]
-      row = _translate(@location[0] + direction[0], @rows)
-      col = _translate(@location[1] + direction[1], @cols)
-      @location[0] = row
-      @location[1] = col
-      @travel_matrix[row][col] += 1
-    end
-
-    def _translate(current, total)
-      if current >= total
-        current = 0
-      elsif current < 0
-        current = total - 1
-      end
-      current
-    end
-
     def look(orientation)
       @direction = orientation
-    end
-
-    def turn_left
-      _turn(:left)
-    end
-
-    def turn_right
-      _turn(:right)
-    end
-
-    def _turn(direction)
-      if direction == :right
-        step = 1
-      elsif direction == :left
-        step = -1
-      end
-      next_orientation = DIRECTIONS_SEQUENCE[@direction.to_sym] + step
-      if next_orientation < 0
-        next_orientation = DIRECTIONS_SEQUENCE.length - 1
-      elsif next_orientation >= DIRECTIONS_SEQUENCE.length
-        next_orientation = 0
-      end
-      @direction = DIRECTIONS_SEQUENCE.key(next_orientation)
     end
   end
 
@@ -121,22 +123,43 @@ module TurtleGraphics
     end
 
     class HTML < BaseDraw
+      TEMPLATE = <<-TEMPLATE.freeze
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Turtle graphics</title>
+          <style>
+            table {
+              border-spacing: 0;
+            }
+            tr {
+              padding: 0;
+            }
+            td {
+              width: %{pixel_size}px;
+              height: %{pixel_size}px;
+              background-color: black;
+              padding: 0;
+            }
+          </style>
+        </head>
+        <body>
+          <table>%{table}</table>
+        </body>
+        </html>
+      TEMPLATE
+
       def initialize(size)
         @size = size
         @table = ''
       end
 
-      def html_template
-        '<!DOCTYPE html><html><head><title>Turtle graphics</title>' +\
-        '<style> table {border-spacing: 0;} tr {padding: 0;} ' +\
-        "td {width: #{@size}px; height: #{@size}px; " +\
-        'background-color: black; padding: 0; }' +\
-        "</style></head><body><table>#{@table}</table></body></html>"
-      end
-
       def draw(travel_matrix, max_steps)
         generate_table travel_matrix, max_steps
-        html_template
+        TEMPLATE % {
+            pixel_size: @size,
+            table: @table
+        }
       end
 
       def generate_table(travel_matrix, max_steps)
@@ -154,7 +177,7 @@ module TurtleGraphics
 
       def generate_td(cell, max_steps)
         intensity = get_intensity_ratio cell, max_steps
-        "<td style=\"opacity: #{format('%.2f', intensity)}\"></td>"
+        '<td style="opacity: %.2f"></td>' % intensity
       end
     end
   end

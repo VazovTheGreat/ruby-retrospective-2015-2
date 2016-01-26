@@ -1,6 +1,3 @@
-require 'digest'
-require 'pp'
-
 class Transaction
   attr_reader :message, :result
 
@@ -39,12 +36,14 @@ class BlobObject
 end
 
 class CommitObject
-  attr_reader :message, :date, :hash, :objects
+  attr_reader :message, :date, :hash
+  attr_accessor :objects
 
   def initialize(message, objects)
     @message = message
     @date = Time.now
-    @hash = Digest::SHA1.hexdigest("#{@date}#{@message}")
+    @formatted = @date.strftime('%a %b %d %H:%M %Y %z')
+    @hash = Digest::SHA1.hexdigest("#{@formatted}#{@message}")
     @objects = objects
   end
 
@@ -53,8 +52,7 @@ class CommitObject
   end
 
   def to_s
-    formatted_date = @date.strftime('%a %b %-d %H:%M %Y %z')
-    "Commit #{@hash}\nDate: #{formatted_date}\n\n\t#{@message}"
+    "Commit #{@hash}\nDate: #{@formatted}\n\n\t#{@message}"
   end
 end
 
@@ -70,9 +68,10 @@ class Branch
   end
 
   def create(branch_name)
-    if get_branch_index(branch_name).nil?
-      new_branch = Marshal.load(Marshal.dump(self))
-      new_branch.name = branch_name
+    if get_branch_index(
+        branch_name).nil?
+      new_branch = self.class.new(branch_name, @object_store)
+      new_branch.commits = @commits.dup
       @object_store.branches.push(new_branch)
       Transaction.new("Created branch #{branch_name}.", true, new_branch)
     else
@@ -86,8 +85,7 @@ class Branch
       Transaction.new("Branch #{branch_name} does not exist.", false)
     else
       @object_store.work_branch = @object_store.branches[branch_index]
-      Transaction.new("Switched to branch #{branch_name}.",
-                      true,
+      Transaction.new("Switched to branch #{branch_name}.", true,
                       @object_store.work_branch)
     end
   end
@@ -113,7 +111,7 @@ class Branch
         "  #{branch_name}"
       end
     end
-    Transaction.new(branch_names.join('\n'), true)
+    Transaction.new(branch_names.join("\n"), true)
   end
 
   def commit_staged
@@ -133,20 +131,10 @@ class Branch
     commit_index = @commits.index { |commit| commit.hash == commit_hash }
     return false if commit_index.nil?
     @commits.drop(commit_index + 1).each do |commit|
-      _apply_reverse_commit commit
+      apply_reverse_commit commit
     end
     @commits = @commits.take(commit_index + 1)
     true
-  end
-
-  def _apply_reverse_commit(commit)
-    commit.objects.each do |object|
-      if object.to_delete?
-        @object_state.push(object)
-      else
-        @object_state.delete(object)
-      end
-    end
   end
 
   def staged_object_index(name)
@@ -159,6 +147,17 @@ class Branch
 
   def get_branch_index(branch_name)
     @object_store.branches.index { |branch| branch.name == branch_name }
+  end
+
+  private
+  def apply_reverse_commit(commit)
+    commit.objects.each do |object|
+      if object.to_delete?
+        @object_state.push(object)
+      else
+        @object_state.delete(object)
+      end
+    end
   end
 end
 
@@ -180,8 +179,8 @@ class ObjectStore
   end
 
   def add(name, object)
-    object_index = @work_branch.staged_object_index name
-    @work_branch.staged.delete_at object_index unless object_index.nil?
+    object_index = @work_branch.object_state_index name
+    @work_branch.object_state.delete_at object_index unless object_index.nil?
     blob_object = BlobObject.new(name, object)
     @work_branch.staged.push(blob_object)
     Transaction.new("Added #{name} to stage.", true, object)
@@ -200,15 +199,13 @@ class ObjectStore
   end
 
   def commit(message)
-    if @work_branch.staged.empty?
-      message = 'Nothing to commit, working directory clean.'
-      return Transaction.new(message, false)
-    end
+    clean = 'Nothing to commit, working directory clean.'
+    return Transaction.new(clean, false) if @work_branch.staged.empty?
     stage_clone = @work_branch.staged.clone
     length = @work_branch.commit_staged
     commit = CommitObject.new(message, stage_clone)
     @work_branch.commits.push(commit)
-    Transaction.new("#{message}\n\t#{length} objects changed", true, commit)
+    conduct_output("#{message}\n\t#{length} objects changed", commit)
   end
 
   def checkout(commit_hash)
@@ -248,7 +245,14 @@ class ObjectStore
       Transaction.new(message, false)
     else
       message = "#{@work_branch.commits.last.message}"
-      Transaction.new(message, true, @work_branch.commits.last)
+      conduct_output(message, @work_branch.commits.last)
     end
+  end
+
+  private
+  def conduct_output(message, commit)
+    output = commit.dup
+    output.objects = @work_branch.object_state.map(&:object)
+    Transaction.new(message, true, output)
   end
 end
